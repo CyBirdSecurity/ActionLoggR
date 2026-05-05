@@ -1,0 +1,111 @@
+name: 'ActionLoggR'
+description: 'Monitor egress network traffic in GitHub Actions to detect supply chain compromises via TLS SNI, DNS, and IP analysis'
+author: 'Drew Klauser'
+
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  ioc-list:
+    description: 'Comma-separated IoC domains/IPs, or a URL to a newline-delimited text file'
+    required: false
+    default: ''
+  webhook-url:
+    description: 'HTTPS endpoint to POST the JSON report to (authenticated via GitHub Actions OIDC)'
+    required: false
+    default: ''
+  fail-on-match:
+    description: 'Fail the job if any IoC matches are found'
+    required: false
+    default: 'false'
+  report-all-traffic:
+    description: 'Include all observed domains/IPs in the report, not just IoC matches'
+    required: false
+    default: 'true'
+  capture-filter:
+    description: 'Optional tcpdump BPF filter to narrow capture scope'
+    required: false
+    default: ''
+  output-dir:
+    description: 'Directory to write report.json and results.sarif'
+    required: false
+    default: '/tmp/actionloggr'
+
+outputs:
+  report-path:
+    description: 'Path to the JSON report file'
+    value: ${{ steps.set-outputs.outputs.report-path }}
+  sarif-path:
+    description: 'Path to the SARIF results file'
+    value: ${{ steps.set-outputs.outputs.sarif-path }}
+  ioc-matches:
+    description: 'Number of IoC matches found'
+    value: ${{ steps.set-outputs.outputs.ioc-matches }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get install -y -qq tcpdump python3-pip conntrack > /dev/null 2>&1
+        pip3 install -q scapy requests 2>/dev/null || true
+
+    - name: Start network monitor
+      shell: bash
+      env:
+        ACTIONLOGGR_OUTPUT_DIR: ${{ inputs.output-dir }}
+        ACTIONLOGGR_CAPTURE_FILTER: ${{ inputs.capture-filter }}
+      run: ${{ github.action_path }}/scripts/monitor-start.sh
+
+    - name: Run wrapped steps
+      shell: bash
+      run: echo "ActionLoggR monitoring is active"
+
+    - name: Stop monitor and generate report
+      if: always()
+      shell: bash
+      env:
+        ACTIONLOGGR_OUTPUT_DIR: ${{ inputs.output-dir }}
+        ACTIONLOGGR_IOC_LIST: ${{ inputs.ioc-list }}
+        ACTIONLOGGR_WEBHOOK_URL: ${{ inputs.webhook-url }}
+        ACTIONLOGGR_REPORT_ALL: ${{ inputs.report-all-traffic }}
+        ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+      run: ${{ github.action_path }}/scripts/monitor-stop.sh
+
+    - name: Set outputs
+      id: set-outputs
+      if: always()
+      shell: bash
+      env:
+        ACTIONLOGGR_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        echo "report-path=${ACTIONLOGGR_OUTPUT_DIR}/report.json" >> "$GITHUB_OUTPUT"
+        echo "sarif-path=${ACTIONLOGGR_OUTPUT_DIR}/results.sarif" >> "$GITHUB_OUTPUT"
+        if [ -f "${ACTIONLOGGR_OUTPUT_DIR}/report.json" ]; then
+          matches=$(python3 -c "import json,sys; d=json.load(open('${ACTIONLOGGR_OUTPUT_DIR}/report.json')); print(len(d.get('ioc_matches',[])))" 2>/dev/null || echo "0")
+          echo "ioc-matches=${matches}" >> "$GITHUB_OUTPUT"
+        else
+          echo "ioc-matches=0" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload SARIF to GitHub Security tab
+      if: always() && hashFiles(format('{0}/results.sarif', inputs.output-dir)) != ''
+      uses: github/codeql-action/upload-sarif@0daab03d71ff584ef619d027a3fd9146679c5d84 # v3.35.3
+      with:
+        sarif_file: ${{ inputs.output-dir }}/results.sarif
+        category: actionloggr-egress
+
+    - name: Fail on IoC match
+      if: inputs.fail-on-match == 'true'
+      shell: bash
+      env:
+        ACTIONLOGGR_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        matches=$(python3 -c "import json,sys; d=json.load(open('${ACTIONLOGGR_OUTPUT_DIR}/report.json')); print(len(d.get('ioc_matches',[])))" 2>/dev/null || echo "0")
+        if [ "$matches" -gt "0" ]; then
+          echo "::error::ActionLoggR detected ${matches} IoC match(es). See report at ${ACTIONLOGGR_OUTPUT_DIR}/report.json"
+          exit 1
+        fi
