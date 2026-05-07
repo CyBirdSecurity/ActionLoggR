@@ -88,7 +88,7 @@ jobs:
       # ... rest of your build steps ...
 ```
 
-The `post:` hook runs automatically after all job steps complete. It stops the monitor, generates the report, and uploads it as a workflow artifact named `actionloggr-{run_id}`. The artifact appears under the run summary in the Actions UI and can be downloaded from there for retroactive investigation.
+The `post:` hook runs automatically after all job steps complete. It stops the monitor, generates the report, and uploads it as a workflow artifact named `actionloggr-report`. The artifact appears under the run summary in the Actions UI and can be downloaded from there for retroactive investigation.
 
 ---
 

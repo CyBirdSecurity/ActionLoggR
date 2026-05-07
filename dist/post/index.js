@@ -35051,14 +35051,13 @@ async function run() {
         .map(f => path.join(outputDir, f));
       if (files.length > 0) {
         const client = artifact.create();
-        const runId = process.env.GITHUB_RUN_ID || 'unknown';
         await client.uploadArtifact(
-          `actionloggr-${runId}`,
+          'actionloggr-report',
           files,
           outputDir,
           { retentionDays: 90 }
         );
-        core.info(`ActionLoggR report uploaded as artifact actionloggr-${runId}`);
+        core.info('ActionLoggR report uploaded as artifact actionloggr-report');
       }
     } catch (e) {
       core.warning(`Artifact upload failed: ${e.message}`);

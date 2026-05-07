@@ -27556,7 +27556,7 @@ module.exports = parseParams
 /************************************************************************/
 var __webpack_exports__ = {};
 const core = __nccwpck_require__(7484);
-const exec = __nccwpck_require__(5236);
+const { spawnSync } = __nccwpck_require__(5317);
 const path = __nccwpck_require__(6928);
 
 async function run() {
@@ -27577,32 +27577,34 @@ async function run() {
 
     // Install system and Python dependencies
     core.startGroup('Install ActionLoggR dependencies');
-    await exec.exec(
-      'sudo',
-      ['apt-get', 'install', '-y', '-qq', 'tcpdump', 'python3-pip', 'conntrack'],
-      { ignoreReturnCode: true }
-    );
-    await exec.exec(
-      'pip3',
-      ['install', '-q', 'scapy', 'requests'],
-      { ignoreReturnCode: true }
-    );
+    spawnSync('sudo', ['apt-get', 'install', '-y', '-qq', 'tcpdump', 'python3-pip', 'conntrack'], { stdio: 'inherit' });
+    spawnSync('pip3', ['install', '-q', 'scapy', 'requests'], { stdio: 'inherit' });
     core.endGroup();
 
-    // GITHUB_ACTION_PATH is only available in composite actions, not JS actions.
-    // __dirname is the dist/main/ directory after ncc bundling, so two levels up
-    // is the action root where scripts/ lives.
+    // __dirname is dist/main/ after ncc bundling; two levels up is the action root.
     const actionRoot = path.resolve(__dirname, '..', '..');
     const scriptPath = path.join(actionRoot, 'scripts', 'monitor-start.sh');
 
     core.info(`Starting network monitor (output-dir=${outputDir})`);
-    await exec.exec('bash', [scriptPath], {
+
+    // Use spawnSync with stdio:'inherit' instead of exec.exec.
+    // exec.exec creates stdout/stderr pipes; the long-running background processes
+    // spawned by monitor-start.sh (tcpdump, dmesg, conntrack) would inherit those
+    // pipes and keep them open, causing exec.exec to hang indefinitely.
+    // With stdio:'inherit', no pipes are created — the script output flows through
+    // the runner's own stdout/stderr and there is nothing for background processes
+    // to hold open.
+    const result = spawnSync('bash', [scriptPath], {
       env: {
         ...process.env,
         ACTIONLOGGR_OUTPUT_DIR: outputDir,
         ACTIONLOGGR_CAPTURE_FILTER: captureFilter,
       },
+      stdio: 'inherit',
     });
+    if (result.status !== 0) {
+      throw new Error(`monitor-start.sh exited with code ${result.status}`);
+    }
   } catch (error) {
     core.setFailed(`ActionLoggR main failed: ${error.message}`);
   }
