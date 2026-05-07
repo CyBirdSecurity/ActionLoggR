@@ -14,9 +14,9 @@ async function run() {
     const failOnMatch = core.getState('fail-on-match') || 'false';
     const reportAllTraffic = core.getState('report-all-traffic') || 'true';
 
-    const actionPath = process.env.GITHUB_ACTION_PATH;
+    const actionPath = core.getState('action-path') || process.env.GITHUB_ACTION_PATH;
     if (!actionPath) {
-      throw new Error('GITHUB_ACTION_PATH is not set — cannot locate scripts/');
+      throw new Error('Could not determine action path — cannot locate scripts/');
     }
     const scriptPath = path.join(actionPath, 'scripts', 'monitor-stop.sh');
 

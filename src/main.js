@@ -11,7 +11,10 @@ async function run() {
     const failOnMatch = core.getInput('fail-on-match') || 'false';
     const reportAllTraffic = core.getInput('report-all-traffic') || 'true';
 
-    // Persist all inputs so post.js can read them after all job steps complete
+    // Persist all inputs and the action path so post.js can read them.
+    // GITHUB_ACTION_PATH is not guaranteed to be set in the post hook context,
+    // so we capture it here during main where it is always available.
+    core.saveState('action-path', process.env.GITHUB_ACTION_PATH);
     core.saveState('output-dir', outputDir);
     core.saveState('ioc-list', iocList);
     core.saveState('webhook-url', webhookUrl);
