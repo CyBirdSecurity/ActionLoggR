@@ -1,7 +1,6 @@
 const core = require('@actions/core');
 const exec = require('@actions/exec');
 const github = require('@actions/github');
-const artifact = require('@actions/artifact');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -53,19 +52,15 @@ async function run() {
     core.setOutput('ioc-matches', String(iocMatches));
 
     // Upload report as a workflow artifact so it survives after the job ends.
-    // This runs from the post hook (after all job steps) so we must upload here —
-    // any upload-artifact step the user adds runs before the report is generated.
+    // Uses dynamic import because @actions/artifact v2 is ESM-only.
     try {
       const files = fs.readdirSync(outputDir)
+        .filter(f => fs.statSync(path.join(outputDir, f)).isFile())
         .map(f => path.join(outputDir, f));
       if (files.length > 0) {
-        const client = artifact.create();
-        await client.uploadArtifact(
-          'actionloggr-report',
-          files,
-          outputDir,
-          { retentionDays: 90 }
-        );
+        const { DefaultArtifactClient } = await import('@actions/artifact');
+        const client = new DefaultArtifactClient();
+        await client.uploadArtifact('actionloggr-report', files, outputDir, { retentionDays: 90 });
         core.info('ActionLoggR report uploaded as artifact actionloggr-report');
       }
     } catch (e) {
