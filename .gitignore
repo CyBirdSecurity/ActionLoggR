@@ -5,3 +5,4 @@ __pycache__/
 /tmp/
 *.pcap
 *.log
+node_modules/

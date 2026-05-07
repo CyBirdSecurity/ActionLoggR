@@ -19,10 +19,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ── 1. Start egress monitor FIRST ──────────────────────────────────────
-      - name: Start ActionLoggR
+      # ── 1. Start ActionLoggR — a single step is all you need ────────────────
+      # GitHub automatically runs the post: hook after all job steps complete,
+      # so the monitor stays active across your entire build without an explicit
+      # stop step. Add any optional inputs here; outputs are set by the post hook.
+      - name: ActionLoggR
+        id: actionloggr
         uses: drewklauser/ActionLoggR@main
-        id: monitor-start
         with:
           # Comma-separated IoCs, or a URL to a newline-delimited blocklist:
           ioc-list: |
@@ -30,18 +33,15 @@ jobs:
             malware-c2.net,
             https://raw.githubusercontent.com/example/ioc-feed/main/domains.txt
           # Optional: POST the full JSON report to your SIEM / log aggregator.
-          # ActionLoggR attaches a GitHub Actions OIDC token so your receiver
-          # can verify the request came from a legitimate Actions run.
           webhook-url: ${{ secrets.ACTIONLOGGR_WEBHOOK_URL }}
           # Set to 'true' to fail the job when an IoC match is detected.
           fail-on-match: 'true'
-          # Include every observed domain/IP in the report (not just matches).
           report-all-traffic: 'true'
-          # Optional BPF filter to narrow capture (default: exclude SSH port).
-          # capture-filter: 'not port 22 and not port 443'
           output-dir: '/tmp/actionloggr'
+          # Optional BPF filter to narrow capture scope.
+          # capture-filter: 'not port 22'
 
-      # ── 2. Your normal build steps go here ─────────────────────────────────
+      # ── 2. Your normal build steps go here ──────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -56,20 +56,14 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # ── 3. ActionLoggR auto-runs its post step (always, even on failure) ───
-      # Results are available via outputs:
-      - name: Show monitoring results
-        if: always()
-        run: |
-          echo "Report:       ${{ steps.monitor-start.outputs.report-path }}"
-          echo "SARIF:        ${{ steps.monitor-start.outputs.sarif-path }}"
-          echo "IoC matches:  ${{ steps.monitor-start.outputs.ioc-matches }}"
-
-      # ── 4. (Optional) upload report as an artifact for manual review ────────
+      # ── 3. Upload report as artifact for retroactive investigation ───────────
+      # Required if you want the report to be accessible after the job ends.
+      # Without this step the files at /tmp/actionloggr/ are deleted when the
+      # runner is recycled.
       - name: Upload ActionLoggR report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: actionloggr-report
           path: /tmp/actionloggr/
-          retention-days: 30
+          retention-days: 90

@@ -2,7 +2,7 @@
 
 **A complete DNS and network audit trail for every GitHub Actions run.**
 
-ActionLoggR is a GitHub Composite Action that records every domain queried and every outbound connection made during your CI pipeline. The log is saved as a workflow artifact — so when a supply chain compromise is disclosed weeks later, you can look back at every run and know immediately whether your pipeline called out to an affected domain.
+ActionLoggR is a GitHub Actions JavaScript action that records every domain queried and every outbound connection made during your CI pipeline. The log is saved as a workflow artifact — so when a supply chain compromise is disclosed weeks later, you can look back at every run and know immediately whether your pipeline called out to an affected domain.
 
 No infrastructure. No secrets. One step.
 
@@ -72,7 +72,7 @@ This works because the artifact contains the raw `dns.log` and `capture.pcap` �
 
 ## Quickstart
 
-Add ActionLoggR as the **first step** in your job (before checkout), and add the artifact upload step at the end.
+ActionLoggR requires **a single step** in your job. GitHub automatically runs the `post:` hook after all other job steps complete, so the monitor stays active across your entire build without you needing to add an explicit stop step.
 
 **No `permissions` block is required for basic usage.** See [Permissions](#permissions) below.
 
@@ -81,15 +81,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Start ActionLoggR
+      - name: ActionLoggR
         uses: drewklauser/ActionLoggR@main
 
       - uses: actions/checkout@v4
-      # ... rest of your build
+      # ... rest of your build steps ...
 
-      # Required: upload the report so it survives after the job ends.
-      # Without this step, the report files are deleted when the runner
-      # is recycled and cannot be retrieved.
+      # Upload the report so it survives after the job ends.
+      # Without this step, the files at /tmp/actionloggr/ are deleted
+      # when the runner is recycled and cannot be retrieved.
       - name: Upload ActionLoggR report
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,7 +99,7 @@ jobs:
           retention-days: 90
 ```
 
-ActionLoggR writes its report to `/tmp/actionloggr/` on the runner. That directory only exists for the lifetime of the job — **the `upload-artifact` step is what makes the report accessible after the run.** Once uploaded, the artifact appears under the run summary in the Actions UI and can be downloaded for retroactive investigation.
+The report is written to `/tmp/actionloggr/` on the runner. That directory only exists for the lifetime of the job — **the `upload-artifact` step is what makes the report accessible after the run.** Once uploaded, the artifact appears under the run summary in the Actions UI and can be downloaded for retroactive investigation.
 
 ---
 
@@ -132,7 +132,7 @@ Omit the `permissions` block entirely if you are not using those features.
 If you have a threat intel feed, you can match against it at run time. Matches are flagged in the Actions log, uploaded to the GitHub Security tab as SARIF alerts, and can optionally fail the job.
 
 ```yaml
-- name: Start ActionLoggR
+- name: ActionLoggR
   uses: drewklauser/ActionLoggR@main
   with:
     # Comma-separated, or a URL to a newline-delimited blocklist:
@@ -154,6 +154,7 @@ IoC matching is optional. The audit trail is always written regardless.
 | `webhook-url` | No | — | HTTPS endpoint to receive the JSON report (authenticated via OIDC) |
 | `capture-filter` | No | — | Custom BPF filter to narrow tcpdump scope |
 | `output-dir` | No | `/tmp/actionloggr` | Directory for report files |
+| `github-token` | No | — | Token for SARIF upload; falls back to `GITHUB_TOKEN` env var |
 
 ## Outputs
 
@@ -203,7 +204,8 @@ IoC matching is optional. The audit trail is always written regardless.
 ActionLoggR can POST the JSON report to any HTTPS endpoint, authenticated with a GitHub Actions OIDC token. Your receiver can verify the token's `sub` claim to confirm the request came from a specific repository and workflow — no long-lived secrets required.
 
 ```yaml
-- uses: drewklauser/ActionLoggR@main
+- name: ActionLoggR
+  uses: drewklauser/ActionLoggR@main
   with:
     webhook-url: ${{ secrets.SIEM_INGEST_URL }}
 ```
@@ -212,20 +214,20 @@ ActionLoggR can POST the JSON report to any HTTPS endpoint, authenticated with a
 
 ## GitHub Security tab integration
 
-When IoC matches are found, ActionLoggR uploads a SARIF file to the GitHub Security tab via `github/codeql-action/upload-sarif`. Findings appear as code scanning alerts without requiring access to raw workflow logs. Requires `security-events: write` permission.
+When IoC matches are found, ActionLoggR uploads a SARIF file to the GitHub Security tab via the REST API. Findings appear as code scanning alerts without requiring access to raw workflow logs. Requires `security-events: write` permission.
 
 ---
 
 ## Full example
 
-See [`example/workflow.yml`](example/workflow.yml) for a complete working workflow with correct step ordering, output consumption, artifact upload, and annotated notes on which permissions are needed for which optional features.
+See [`example/workflow.yml`](example/workflow.yml) for a complete working workflow with output consumption, artifact upload, and annotated notes on which permissions are needed for which optional features.
 
 ---
 
 ## How it works
 
 ```
-Runner boot
+main: (runs when the step executes)
     │
     ▼
 monitor-start.sh
@@ -235,9 +237,12 @@ monitor-start.sh
     └── iptables LOG + dmesg tail   (kernel connection log)
     │
     ▼
-[ Your build steps run here ]
+[ Your build steps — checkout, setup, install, test, deploy, etc. ]
     │
-    ▼  (always, even on failure)
+    ▼  (GitHub runs post: automatically, with post-if: always())
+post:
+    │
+    ▼
 monitor-stop.sh → report.py
     ├── parse pcap → extract TLS SNI from ClientHello bytes
     ├── parse pcap → extract DNS queries (Scapy if available, raw parser fallback)
