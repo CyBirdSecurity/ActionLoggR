@@ -72,14 +72,11 @@ This works because the artifact contains the raw `dns.log` and `capture.pcap` �
 
 ## Quickstart
 
-Add this as the **first step** in your job, before checkout:
+Add ActionLoggR as the **first step** in your job (before checkout), and add the artifact upload step at the end.
+
+**No `permissions` block is required for basic usage.** See [Permissions](#permissions) below.
 
 ```yaml
-permissions:
-  contents: read
-  id-token: write        # for OIDC-authenticated webhook delivery
-  security-events: write # to upload findings to the GitHub Security tab
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -90,6 +87,9 @@ jobs:
       - uses: actions/checkout@v4
       # ... rest of your build
 
+      # Required: upload the report so it survives after the job ends.
+      # Without this step, the report files are deleted when the runner
+      # is recycled and cannot be retrieved.
       - name: Upload ActionLoggR report
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,7 +99,31 @@ jobs:
           retention-days: 90
 ```
 
-The post-step runs automatically after your job completes — even if it fails. The uploaded artifact contains everything needed for retroactive investigation.
+ActionLoggR writes its report to `/tmp/actionloggr/` on the runner. That directory only exists for the lifetime of the job — **the `upload-artifact` step is what makes the report accessible after the run.** Once uploaded, the artifact appears under the run summary in the Actions UI and can be downloaded for retroactive investigation.
+
+---
+
+## Permissions
+
+ActionLoggR requires **no additional permissions** for a standard run. The default `GITHUB_TOKEN` permissions are sufficient to capture traffic, generate the report, and upload it as a workflow artifact.
+
+Two optional features require elevated permissions:
+
+| Feature | Permission needed |
+|---|---|
+| Upload IoC matches to the GitHub Security tab (SARIF) | `security-events: write` |
+| Authenticate webhook delivery with an OIDC token | `id-token: write` |
+
+If you are using either of those features, add only the permissions you need:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write # only if you want findings in the GitHub Security tab
+  id-token: write        # only if you are using webhook-url with OIDC auth
+```
+
+Omit the `permissions` block entirely if you are not using those features.
 
 ---
 
@@ -194,7 +218,7 @@ When IoC matches are found, ActionLoggR uploads a SARIF file to the GitHub Secur
 
 ## Full example
 
-See [`example/workflow.yml`](example/workflow.yml) for a complete working workflow with correct step ordering, OIDC permissions, output consumption, and artifact upload.
+See [`example/workflow.yml`](example/workflow.yml) for a complete working workflow with correct step ordering, output consumption, artifact upload, and annotated notes on which permissions are needed for which optional features.
 
 ---
 
@@ -232,8 +256,7 @@ monitor-stop.sh → report.py
 ## Requirements
 
 - GitHub-hosted **ubuntu** runner (any size)
-- `id-token: write` permission for webhook delivery
-- `security-events: write` permission for Security tab integration
+- No additional `permissions` required for basic usage (see [Permissions](#permissions))
 
 ActionLoggR installs `tcpdump`, `conntrack`, and optionally `scapy` at runtime. Setup typically takes under 15 seconds.
 

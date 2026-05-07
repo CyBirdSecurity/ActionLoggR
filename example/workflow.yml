@@ -5,11 +5,15 @@ on:
     branches: [main]
   pull_request:
 
-# OIDC permissions required for ActionLoggR webhook authentication
+# Permissions: no elevated permissions are needed for basic ActionLoggR usage.
+# Only add these if you are using the optional features below:
+#   id-token: write        → needed for OIDC-authenticated webhook delivery
+#   security-events: write → needed to upload SARIF to the GitHub Security tab
+# Remove this block entirely if you are not using those features.
 permissions:
   contents: read
-  id-token: write          # needed for OIDC token → webhook auth
-  security-events: write   # needed to upload SARIF to Security tab
+  id-token: write          # remove if not using webhook-url
+  security-events: write   # remove if not using GitHub Security tab integration
 
 jobs:
   build:
