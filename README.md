@@ -86,20 +86,9 @@ jobs:
 
       - uses: actions/checkout@v4
       # ... rest of your build steps ...
-
-      # Upload the report so it survives after the job ends.
-      # Without this step, the files at /tmp/actionloggr/ are deleted
-      # when the runner is recycled and cannot be retrieved.
-      - name: Upload ActionLoggR report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: actionloggr-${{ github.run_id }}
-          path: /tmp/actionloggr/
-          retention-days: 90
 ```
 
-The report is written to `/tmp/actionloggr/` on the runner. That directory only exists for the lifetime of the job — **the `upload-artifact` step is what makes the report accessible after the run.** Once uploaded, the artifact appears under the run summary in the Actions UI and can be downloaded for retroactive investigation.
+The `post:` hook runs automatically after all job steps complete. It stops the monitor, generates the report, and uploads it as a workflow artifact named `actionloggr-{run_id}`. The artifact appears under the run summary in the Actions UI and can be downloaded from there for retroactive investigation.
 
 ---
 

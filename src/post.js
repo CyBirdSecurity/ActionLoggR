@@ -1,6 +1,7 @@
 const core = require('@actions/core');
 const exec = require('@actions/exec');
 const github = require('@actions/github');
+const artifact = require('@actions/artifact');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -50,6 +51,27 @@ async function run() {
     core.setOutput('report-path', reportPath);
     core.setOutput('sarif-path', sarifPath);
     core.setOutput('ioc-matches', String(iocMatches));
+
+    // Upload report as a workflow artifact so it survives after the job ends.
+    // This runs from the post hook (after all job steps) so we must upload here —
+    // any upload-artifact step the user adds runs before the report is generated.
+    try {
+      const files = fs.readdirSync(outputDir)
+        .map(f => path.join(outputDir, f));
+      if (files.length > 0) {
+        const client = artifact.create();
+        const runId = process.env.GITHUB_RUN_ID || 'unknown';
+        await client.uploadArtifact(
+          `actionloggr-${runId}`,
+          files,
+          outputDir,
+          { retentionDays: 90 }
+        );
+        core.info(`ActionLoggR report uploaded as artifact actionloggr-${runId}`);
+      }
+    } catch (e) {
+      core.warning(`Artifact upload failed: ${e.message}`);
+    }
 
     // Upload SARIF to GitHub Security tab when IoC matches exist
     if (iocMatches > 0 && fs.existsSync(sarifPath)) {

@@ -56,14 +56,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      # ── 3. Upload report as artifact for retroactive investigation ───────────
-      # Required if you want the report to be accessible after the job ends.
-      # Without this step the files at /tmp/actionloggr/ are deleted when the
-      # runner is recycled.
-      - name: Upload ActionLoggR report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: actionloggr-report
-          path: /tmp/actionloggr/
-          retention-days: 90
+      # The post: hook runs automatically after all steps above complete.
+      # It stops the monitor, generates the report, and uploads it as a
+      # workflow artifact named actionloggr-{run_id}. No additional steps needed.

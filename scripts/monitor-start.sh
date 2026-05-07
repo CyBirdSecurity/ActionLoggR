@@ -36,34 +36,39 @@ TCPDUMP_PID=$!
 echo "[actionloggr] tcpdump PID: ${TCPDUMP_PID}" >&2
 
 # ── DNS query capture via tcpdump (text log for quick offline parsing) ────────
-sudo tcpdump \
-  -i "${IFACE}" \
-  -l \
-  -n \
-  'udp port 53 or tcp port 53' \
-  2>/dev/null \
+# The brace group + </dev/null 2>/dev/null ensures none of the pipeline stages
+# hold open the parent's stdin/stderr pipes (which would cause exec.exec in
+# the Node.js action to hang waiting for those pipes to close).
+{ sudo tcpdump \
+    -i "${IFACE}" \
+    -l \
+    -n \
+    'udp port 53 or tcp port 53' \
+    2>/dev/null \
   | awk '
-    /A\?|AAAA\?|CNAME\?|TXT\?/ {
-      ts = $1
-      for (i=1; i<=NF; i++) {
-        if ($i ~ /\?$/) {
-          gsub(/\?$/, "", $i)
-          print ts, $i
-          next
+      /A\?|AAAA\?|CNAME\?|TXT\?/ {
+        ts = $1
+        for (i=1; i<=NF; i++) {
+          if ($i ~ /\?$/) {
+            gsub(/\?$/, "", $i)
+            print ts, $i
+            next
+          }
         }
       }
-    }
-  ' >> "${DNS_LOG}" &
+    ' >> "${DNS_LOG}" 2>/dev/null
+} </dev/null 2>/dev/null &
 DNS_PID=$!
 echo "[actionloggr] DNS capture PID: ${DNS_PID}" >&2
 
 # ── conntrack event logging ───────────────────────────────────────────────────
 # conntrack may not be loaded; fall back gracefully.
 if command -v conntrack &>/dev/null; then
-  sudo conntrack -E -e NEW -o timestamp \
-    2>/dev/null \
+  { sudo conntrack -E -e NEW -o timestamp \
+      2>/dev/null \
     | grep --line-buffered -v '127\.0\.0\.' \
-    >> "${CONNTRACK_LOG}" &
+      >> "${CONNTRACK_LOG}" 2>/dev/null
+  } </dev/null 2>/dev/null &
   CONNTRACK_PID=$!
   echo "[actionloggr] conntrack PID: ${CONNTRACK_PID}" >&2
 else
@@ -82,9 +87,10 @@ if sudo iptables -L OUTPUT &>/dev/null 2>&1; then
     --log-level 4 \
     2>/dev/null || true
 
-  sudo dmesg -w 2>/dev/null \
+  { sudo dmesg -w 2>/dev/null \
     | grep --line-buffered "ACTIONLOGGR_OUT:" \
-    >> "${IPTABLES_LOG}" &
+      >> "${IPTABLES_LOG}" 2>/dev/null
+  } </dev/null 2>/dev/null &
   DMESG_PID=$!
   echo "[actionloggr] dmesg tail PID: ${DMESG_PID}" >&2
 else
