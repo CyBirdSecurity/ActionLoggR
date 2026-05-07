@@ -31850,11 +31850,9 @@ async function run() {
     const failOnMatch = core.getState('fail-on-match') || 'false';
     const reportAllTraffic = core.getState('report-all-traffic') || 'true';
 
-    const actionPath = core.getState('action-path') || process.env.GITHUB_ACTION_PATH;
-    if (!actionPath) {
-      throw new Error('Could not determine action path — cannot locate scripts/');
-    }
-    const scriptPath = path.join(actionPath, 'scripts', 'monitor-stop.sh');
+    // Same logic as main.js — __dirname is dist/post/ after ncc bundling.
+    const actionRoot = path.resolve(__dirname, '..', '..');
+    const scriptPath = path.join(actionRoot, 'scripts', 'monitor-stop.sh');
 
     core.info('Stopping network monitor and generating report…');
     await exec.exec('bash', [scriptPath], {

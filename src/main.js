@@ -11,10 +11,7 @@ async function run() {
     const failOnMatch = core.getInput('fail-on-match') || 'false';
     const reportAllTraffic = core.getInput('report-all-traffic') || 'true';
 
-    // Persist all inputs and the action path so post.js can read them.
-    // GITHUB_ACTION_PATH is not guaranteed to be set in the post hook context,
-    // so we capture it here during main where it is always available.
-    core.saveState('action-path', process.env.GITHUB_ACTION_PATH);
+    // Persist all inputs so post.js can read them after all job steps complete.
     core.saveState('output-dir', outputDir);
     core.saveState('ioc-list', iocList);
     core.saveState('webhook-url', webhookUrl);
@@ -35,13 +32,11 @@ async function run() {
     );
     core.endGroup();
 
-    // Use GITHUB_ACTION_PATH so the path remains correct after ncc bundling
-    // (__dirname would point into dist/ and scripts/ would not be found there)
-    const actionPath = process.env.GITHUB_ACTION_PATH;
-    if (!actionPath) {
-      throw new Error('GITHUB_ACTION_PATH is not set — cannot locate scripts/');
-    }
-    const scriptPath = path.join(actionPath, 'scripts', 'monitor-start.sh');
+    // GITHUB_ACTION_PATH is only available in composite actions, not JS actions.
+    // __dirname is the dist/main/ directory after ncc bundling, so two levels up
+    // is the action root where scripts/ lives.
+    const actionRoot = path.resolve(__dirname, '..', '..');
+    const scriptPath = path.join(actionRoot, 'scripts', 'monitor-start.sh');
 
     core.info(`Starting network monitor (output-dir=${outputDir})`);
     await exec.exec('bash', [scriptPath], {
